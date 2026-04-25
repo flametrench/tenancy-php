@@ -1,0 +1,41 @@
+{
+    "name": "flametrench/tenancy",
+    "description": "Tenancy primitives for Flametrench: organizations, memberships, invitations. Spec-conformant revoke-and-re-add lifecycle and atomic invitation acceptance.",
+    "type": "library",
+    "license": "Apache-2.0",
+    "keywords": ["flametrench", "tenancy", "organizations", "memberships", "invitations", "multi-tenancy"],
+    "homepage": "https://flametrench.dev",
+    "authors": [
+        {
+            "name": "NDC Digital, LLC",
+            "homepage": "https://flametrench.dev"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "flametrench/ids": "^0.1.0"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flametrench\\Tenancy\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/pest"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}
