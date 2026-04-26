@@ -16,6 +16,7 @@ use Flametrench\Tenancy\Exceptions\IdentifierMismatchException;
 use Flametrench\Tenancy\Exceptions\InvitationExpiredException;
 use Flametrench\Tenancy\Exceptions\InvitationNotPendingException;
 use Flametrench\Tenancy\Exceptions\NotFoundException;
+use Flametrench\Tenancy\Exceptions\OrgSlugConflictException;
 use Flametrench\Tenancy\Exceptions\PreconditionException;
 use Flametrench\Tenancy\Exceptions\RoleHierarchyException;
 use Flametrench\Tenancy\Exceptions\SoleOwnerException;
@@ -119,14 +120,32 @@ final class InMemoryTenancyStore implements TenancyStore
 
     // ─── Organizations ───
 
-    public function createOrg(string $creator): array
-    {
+    /**
+     * Sentinel value for `update_org` to distinguish "don't change"
+     * from an explicit "set to null." Use {@see TenancyStore::UNSET}.
+     */
+    public const UNSET = '__flametrench_unset__';
+
+    /**
+     * @return array{org: Organization, ownerMembership: Membership}
+     */
+    public function createOrg(
+        string $creator,
+        ?string $name = null,
+        ?string $slug = null,
+    ): array {
+        if ($slug !== null) {
+            self::validateSlug($slug);
+            $this->enforceSlugUnique($slug, excludeOrgId: null);
+        }
         $now = $this->now();
         $org = new Organization(
             id: Id::generate('org'),
             status: Status::Active,
             createdAt: $now,
             updatedAt: $now,
+            name: $name,
+            slug: $slug,
         );
         $ownerMembership = new Membership(
             id: Id::generate('mem'),
@@ -149,6 +168,58 @@ final class InMemoryTenancyStore implements TenancyStore
     public function getOrg(string $orgId): Organization
     {
         return $this->requireOrg($orgId);
+    }
+
+    /**
+     * ADR 0011 partial update.
+     *
+     * Use the {@see UNSET} sentinel for "don't change" and pass `null`
+     * for "set to null." Slug uniqueness violations raise
+     * {@see OrgSlugConflictException}; updating a revoked org raises
+     * {@see AlreadyTerminalException}.
+     */
+    public function updateOrg(
+        string $orgId,
+        string|null $name = self::UNSET,
+        string|null $slug = self::UNSET,
+    ): Organization {
+        $org = $this->requireOrg($orgId);
+        if ($org->status === Status::Revoked) {
+            throw new AlreadyTerminalException("Org {$orgId} is revoked; cannot update");
+        }
+        $newName = $name === self::UNSET ? $org->name : $name;
+        $newSlug = $slug === self::UNSET ? $org->slug : $slug;
+        if ($slug !== self::UNSET && $newSlug !== null) {
+            self::validateSlug($newSlug);
+            $this->enforceSlugUnique($newSlug, excludeOrgId: $orgId);
+        }
+        $updated = $org->withMetadata($newName, $newSlug, $this->now());
+        $this->orgs[$orgId] = $updated;
+        return $updated;
+    }
+
+    private function enforceSlugUnique(string $slug, ?string $excludeOrgId): void
+    {
+        foreach ($this->orgs as $existing) {
+            if ($existing->id === $excludeOrgId) {
+                continue;
+            }
+            if ($existing->slug === $slug && $existing->status !== Status::Revoked) {
+                throw new OrgSlugConflictException($slug);
+            }
+        }
+    }
+
+    private static function validateSlug(string $slug): void
+    {
+        if (preg_match('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $slug) !== 1) {
+            throw new PreconditionException(
+                "Slug '{$slug}' does not match the spec pattern "
+                . '(DNS-label-style: 1-63 lowercase ASCII chars or digits or hyphens, '
+                . 'no leading/trailing hyphen)',
+                'org_slug_format',
+            );
+        }
     }
 
     private function transitionOrg(string $orgId, Status $to): Organization

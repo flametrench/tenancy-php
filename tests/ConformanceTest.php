@@ -38,6 +38,7 @@ use Flametrench\Tenancy\Exceptions\IdentifierMismatchException;
 use Flametrench\Tenancy\Exceptions\InvitationExpiredException;
 use Flametrench\Tenancy\Exceptions\InvitationNotPendingException;
 use Flametrench\Tenancy\Exceptions\NotFoundException;
+use Flametrench\Tenancy\Exceptions\OrgSlugConflictException;
 use Flametrench\Tenancy\Exceptions\PreconditionException;
 use Flametrench\Tenancy\Exceptions\RoleHierarchyException;
 use Flametrench\Tenancy\Exceptions\SoleOwnerException;
@@ -61,6 +62,7 @@ const ERROR_CLASSES = [
     'NotFoundError' => NotFoundException::class,
     'IdentifierBindingRequiredError' => IdentifierBindingRequiredException::class,
     'IdentifierMismatchError' => IdentifierMismatchException::class,
+    'OrgSlugConflictError' => OrgSlugConflictException::class,
 ];
 
 /**
@@ -179,7 +181,20 @@ function buildPreTuples(?array $values): array
 function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
 {
     return match ($op) {
-        'create_org' => $store->createOrg($args['creator']),
+        'create_org' => $store->createOrg(
+            $args['creator'],
+            name: $args['name'] ?? null,
+            slug: $args['slug'] ?? null,
+        ),
+
+        'update_org' => $store->updateOrg(
+            $args['org_id'],
+            name: array_key_exists('name', $args) ? $args['name'] : InMemoryTenancyStore::UNSET,
+            slug: array_key_exists('slug', $args) ? $args['slug'] : InMemoryTenancyStore::UNSET,
+        ),
+
+        'assert_org_fields' => assertOrgFields($store, $args),
+
 
         'add_member' => $store->addMember(
             orgId: $args['org_id'],
@@ -261,6 +276,21 @@ function assertInvitationStatus(InMemoryTenancyStore $store, array $args): null
 }
 
 /**
+ * @param array{org_id:string, expected_name?:string|null, expected_slug?:string|null} $args
+ */
+function assertOrgFields(InMemoryTenancyStore $store, array $args): null
+{
+    $org = $store->getOrg($args['org_id']);
+    if (array_key_exists('expected_name', $args)) {
+        expect($org->name)->toBe($args['expected_name']);
+    }
+    if (array_key_exists('expected_slug', $args)) {
+        expect($org->slug)->toBe($args['expected_slug']);
+    }
+    return null;
+}
+
+/**
  * @param array{subject_type:string, subject_id:string, relations:list<string>} $args
  */
 function assertSubjectRelations(InMemoryTenancyStore $store, array $args): null
@@ -333,6 +363,7 @@ foreach (
         'tenancy.admin_remove' => 'tenancy/admin-remove.json',
         'tenancy.accept_invitation' => 'tenancy/invitation-accept.json',
         'tenancy.accept_invitation.binding' => 'tenancy/invitation-accept-binding.json',
+        'tenancy.update_org' => 'tenancy/org-name-slug.json',
     ] as $describeName => $fixturePath
 ) {
     $fixture = loadTenancyFixture($fixturePath);

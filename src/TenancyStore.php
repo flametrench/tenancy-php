@@ -26,11 +26,37 @@ interface TenancyStore
     // ─── Organizations ───
 
     /**
+     * Sentinel for {@see updateOrg} partial-update semantics.
+     * Implementations re-export this constant.
+     */
+    public const UNSET = '__flametrench_unset__';
+
+    /**
+     * @param  ?string  $name  v0.2 (ADR 0011) optional display name.
+     * @param  ?string  $slug  v0.2 (ADR 0011) optional URL handle.
+     *
      * @return array{org: Organization, ownerMembership: Membership}
      */
-    public function createOrg(string $creator): array;
+    public function createOrg(
+        string $creator,
+        ?string $name = null,
+        ?string $slug = null,
+    ): array;
 
     public function getOrg(string $orgId): Organization;
+
+    /**
+     * Partial update of v0.2 metadata fields per ADR 0011.
+     *
+     * Pass {@see TenancyStore::UNSET} to skip a field; pass `null` to
+     * clear it. Slug uniqueness violations raise OrgSlugConflictException;
+     * updating a revoked org raises AlreadyTerminalException.
+     */
+    public function updateOrg(
+        string $orgId,
+        string|null $name = self::UNSET,
+        string|null $slug = self::UNSET,
+    ): Organization;
 
     public function suspendOrg(string $orgId): Organization;
 
