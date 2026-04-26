@@ -33,6 +33,8 @@ use Flametrench\Ids\Id;
 use Flametrench\Tenancy\Exceptions\AlreadyTerminalException;
 use Flametrench\Tenancy\Exceptions\DuplicateMembershipException;
 use Flametrench\Tenancy\Exceptions\ForbiddenException;
+use Flametrench\Tenancy\Exceptions\IdentifierBindingRequiredException;
+use Flametrench\Tenancy\Exceptions\IdentifierMismatchException;
 use Flametrench\Tenancy\Exceptions\InvitationExpiredException;
 use Flametrench\Tenancy\Exceptions\InvitationNotPendingException;
 use Flametrench\Tenancy\Exceptions\NotFoundException;
@@ -57,6 +59,8 @@ const ERROR_CLASSES = [
     'PreconditionError' => PreconditionException::class,
     'AlreadyTerminalError' => AlreadyTerminalException::class,
     'NotFoundError' => NotFoundException::class,
+    'IdentifierBindingRequiredError' => IdentifierBindingRequiredException::class,
+    'IdentifierMismatchError' => IdentifierMismatchException::class,
 ];
 
 /**
@@ -221,6 +225,7 @@ function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
         'accept_invitation' => $store->acceptInvitation(
             invId: $args['inv_id'],
             asUsrId: $args['as_usr_id'] ?? null,
+            acceptingIdentifier: $args['accepting_identifier'] ?? null,
         ),
 
         'decline_invitation' => $store->declineInvitation(
@@ -239,9 +244,20 @@ function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
 
         'assert_subject_relations' => assertSubjectRelations($store, $args),
         'assert_equal' => assertEqual($args),
+        'assert_invitation_status' => assertInvitationStatus($store, $args),
 
         default => throw new RuntimeException("Unknown fixture op: {$op}"),
     };
+}
+
+/**
+ * @param array{inv_id:string, expected_status:string} $args
+ */
+function assertInvitationStatus(InMemoryTenancyStore $store, array $args): null
+{
+    $inv = $store->getInvitation($args['inv_id']);
+    expect($inv->status->value)->toBe($args['expected_status']);
+    return null;
 }
 
 /**
@@ -316,6 +332,7 @@ foreach (
         'tenancy.transfer_ownership' => 'tenancy/transfer-ownership.json',
         'tenancy.admin_remove' => 'tenancy/admin-remove.json',
         'tenancy.accept_invitation' => 'tenancy/invitation-accept.json',
+        'tenancy.accept_invitation.binding' => 'tenancy/invitation-accept-binding.json',
     ] as $describeName => $fixturePath
 ) {
     $fixture = loadTenancyFixture($fixturePath);

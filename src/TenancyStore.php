@@ -106,11 +106,25 @@ interface TenancyStore
     ): Page;
 
     /**
-     * Accept an invitation. If $asUsrId is null a new usr_ id is generated.
+     * Accept an invitation.
+     *
+     * Per ADR 0009: when `$asUsrId` is provided, `$acceptingIdentifier`
+     * is REQUIRED. The SDK byte-compares it to `invitation.identifier`;
+     * mismatch raises {@see Exceptions\IdentifierMismatchException},
+     * omission raises {@see Exceptions\IdentifierBindingRequiredException}.
+     * If `$asUsrId` is null the SDK generates a fresh usr_ id and
+     * `$acceptingIdentifier` is not consulted.
+     *
+     * The host MUST source `$acceptingIdentifier` from the
+     * authenticated session, NOT from a request body.
      *
      * @return array{invitation: Invitation, membership: Membership, materializedTuples: list<Tuple>}
      */
-    public function acceptInvitation(string $invId, ?string $asUsrId = null): array;
+    public function acceptInvitation(
+        string $invId,
+        ?string $asUsrId = null,
+        ?string $acceptingIdentifier = null,
+    ): array;
 
     public function declineInvitation(string $invId, ?string $asUsrId = null): Invitation;
 

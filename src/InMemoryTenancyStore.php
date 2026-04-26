@@ -11,6 +11,8 @@ use Flametrench\Ids\Id;
 use Flametrench\Tenancy\Exceptions\AlreadyTerminalException;
 use Flametrench\Tenancy\Exceptions\DuplicateMembershipException;
 use Flametrench\Tenancy\Exceptions\ForbiddenException;
+use Flametrench\Tenancy\Exceptions\IdentifierBindingRequiredException;
+use Flametrench\Tenancy\Exceptions\IdentifierMismatchException;
 use Flametrench\Tenancy\Exceptions\InvitationExpiredException;
 use Flametrench\Tenancy\Exceptions\InvitationNotPendingException;
 use Flametrench\Tenancy\Exceptions\NotFoundException;
@@ -526,8 +528,11 @@ final class InMemoryTenancyStore implements TenancyStore
         return $this->paginate($all, $cursor, $limit);
     }
 
-    public function acceptInvitation(string $invId, ?string $asUsrId = null): array
-    {
+    public function acceptInvitation(
+        string $invId,
+        ?string $asUsrId = null,
+        ?string $acceptingIdentifier = null,
+    ): array {
         $inv = $this->getInvitation($invId);
         if ($inv->status !== InvitationStatus::Pending) {
             throw new InvitationNotPendingException(
@@ -539,6 +544,15 @@ final class InMemoryTenancyStore implements TenancyStore
             throw new InvitationExpiredException(
                 "Invitation {$invId} expired at " . $inv->expiresAt->format(\DateTimeInterface::ATOM),
             );
+        }
+        // ADR 0009: existing-user accept MUST supply a matching identifier.
+        if ($asUsrId !== null) {
+            if ($acceptingIdentifier === null) {
+                throw new IdentifierBindingRequiredException();
+            }
+            if ($acceptingIdentifier !== $inv->identifier) {
+                throw new IdentifierMismatchException($acceptingIdentifier, $inv->identifier);
+            }
         }
         $usrId = $asUsrId ?? Id::generate('usr');
         if ($this->findActiveMembership($usrId, $inv->orgId) !== null) {

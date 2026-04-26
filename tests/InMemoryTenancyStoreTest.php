@@ -8,6 +8,8 @@ declare(strict_types=1);
 use Flametrench\Ids\Id;
 use Flametrench\Tenancy\Exceptions\DuplicateMembershipException;
 use Flametrench\Tenancy\Exceptions\ForbiddenException;
+use Flametrench\Tenancy\Exceptions\IdentifierBindingRequiredException;
+use Flametrench\Tenancy\Exceptions\IdentifierMismatchException;
 use Flametrench\Tenancy\Exceptions\InvitationExpiredException;
 use Flametrench\Tenancy\Exceptions\InvitationNotPendingException;
 use Flametrench\Tenancy\Exceptions\NotFoundException;
@@ -253,7 +255,11 @@ describe('invitations', function () {
             expiresAt: (new DateTimeImmutable())->modify('+1 hour'),
             preTuples: [new PreTuple('viewer', 'proj', $project)],
         );
-        $result = $this->store->acceptInvitation($inv->id, asUsrId: $this->carol);
+        $result = $this->store->acceptInvitation(
+            $inv->id,
+            asUsrId: $this->carol,
+            acceptingIdentifier: 'carol@example.com',
+        );
         expect($result['invitation']->status)->toBe(InvitationStatus::Accepted);
         expect($result['invitation']->invitedUserId)->toBe($this->carol);
         expect($result['materializedTuples'])->toHaveCount(1);
@@ -270,9 +276,16 @@ describe('invitations', function () {
             invitedBy: $this->alice,
             expiresAt: (new DateTimeImmutable())->modify('+1 hour'),
         );
-        $this->store->acceptInvitation($inv->id, asUsrId: $this->bob);
-        expect(fn() => $this->store->acceptInvitation($inv->id, asUsrId: $this->carol))
-            ->toThrow(InvitationNotPendingException::class);
+        $this->store->acceptInvitation(
+            $inv->id,
+            asUsrId: $this->bob,
+            acceptingIdentifier: 'x@y',
+        );
+        expect(fn() => $this->store->acceptInvitation(
+            $inv->id,
+            asUsrId: $this->carol,
+            acceptingIdentifier: 'x@y',
+        ))->toThrow(InvitationNotPendingException::class);
     });
 
     it('declines with terminal attribution', function () {
@@ -324,8 +337,40 @@ describe('invitations', function () {
         );
         // Advance seq past the expiration so now() > expiresAt.
         $seq = 100;
-        expect(fn() => $shifted->acceptInvitation($inv->id, asUsrId: $this->bob))
-            ->toThrow(InvitationExpiredException::class);
+        expect(fn() => $shifted->acceptInvitation(
+            $inv->id,
+            asUsrId: $this->bob,
+            acceptingIdentifier: 'x@y',
+        ))->toThrow(InvitationExpiredException::class);
+    });
+
+    it('(ADR 0009) requires acceptingIdentifier when asUsrId is provided', function () {
+        ['org' => $org] = $this->store->createOrg($this->alice);
+        $inv = $this->store->createInvitation(
+            orgId: $org->id,
+            identifier: 'bob@example.com',
+            role: Role::Member,
+            invitedBy: $this->alice,
+            expiresAt: (new DateTimeImmutable())->modify('+1 hour'),
+        );
+        expect(fn() => $this->store->acceptInvitation($inv->id, asUsrId: $this->bob))
+            ->toThrow(IdentifierBindingRequiredException::class);
+    });
+
+    it('(ADR 0009) rejects mismatched acceptingIdentifier (privilege-escalation closer)', function () {
+        ['org' => $org] = $this->store->createOrg($this->alice);
+        $inv = $this->store->createInvitation(
+            orgId: $org->id,
+            identifier: 'victim@example.org',
+            role: Role::Owner,
+            invitedBy: $this->alice,
+            expiresAt: (new DateTimeImmutable())->modify('+1 hour'),
+        );
+        expect(fn() => $this->store->acceptInvitation(
+            $inv->id,
+            asUsrId: $this->bob,
+            acceptingIdentifier: 'attacker@example.com',
+        ))->toThrow(IdentifierMismatchException::class);
     });
 });
 
