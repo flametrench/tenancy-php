@@ -70,6 +70,21 @@ final class PostgresTenancyStore implements TenancyStore
     }
 
     /**
+     * Decode an `object_id` to a Postgres-bindable UUID string.
+     * See PostgresTupleStore::objectIdToUuid for rationale (spec#8) —
+     * `object_type` is application-defined, so wire-format prefixed IDs
+     * with non-registered prefixes (e.g. `proj_<hex>`) may legitimately
+     * arrive here. Raw 32-hex and hyphenated UUIDs pass through unchanged.
+     */
+    private static function objectIdToUuid(string $objectId): string
+    {
+        if (preg_match('/^[a-z]{2,6}_[0-9a-f]{32}$/', $objectId) === 1) {
+            return Id::decodeAny($objectId)['uuid'];
+        }
+        return $objectId;
+    }
+
+    /**
      * Run $fn inside BEGIN/COMMIT. Rolls back and rethrows on any error.
      *
      * @template T
@@ -1002,7 +1017,7 @@ final class PostgresTenancyStore implements TenancyStore
                     "INSERT INTO tup (id, subject_type, subject_id, relation, object_type, object_id, created_at)
                      VALUES (?, 'usr', ?, ?, ?, ?, ?)"
                 );
-                $stmt->execute([$ptTupUuid, $usrUuid, $relation, $objectType, $objectId, $nowFmt]);
+                $stmt->execute([$ptTupUuid, $usrUuid, $relation, $objectType, self::objectIdToUuid($objectId), $nowFmt]);
                 $materializedTuples[] = new Tuple(
                     subjectType: 'usr',
                     subjectId: Id::encode('usr', $usrUuid),
@@ -1098,7 +1113,7 @@ final class PostgresTenancyStore implements TenancyStore
 
     public function listTuplesForObject(string $objectType, string $objectId, ?string $relation = null): array
     {
-        $params = [$objectType, $objectId];
+        $params = [$objectType, self::objectIdToUuid($objectId)];
         $sql = 'SELECT id, subject_type, subject_id, relation, object_type, object_id, created_at, created_by
                 FROM tup WHERE object_type = ? AND object_id = ?';
         if ($relation !== null) {
