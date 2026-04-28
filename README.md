@@ -1,5 +1,7 @@
 # flametrench/tenancy
 
+[![CI](https://github.com/flametrench/tenancy-php/actions/workflows/ci.yml/badge.svg)](https://github.com/flametrench/tenancy-php/actions/workflows/ci.yml)
+
 Tenancy primitives for [Flametrench](https://flametrench.dev): organizations, memberships, and invitations. Spec-conformant revoke-and-re-add lifecycle, atomic invitation acceptance, sole-owner protection, and a `mem_`/`tup_` duality maintained without drift.
 
 The PHP counterpart of [`@flametrench/tenancy`](https://github.com/flametrench/node/tree/main/packages/tenancy) — same shapes, same invariants, same operations. Both SDKs are exercised against the spec's [conformance suite](https://github.com/flametrench/spec/tree/main/conformance) so applications can move between the two languages with no behavioral surprises.
