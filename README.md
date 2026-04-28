@@ -4,7 +4,7 @@ Tenancy primitives for [Flametrench](https://flametrench.dev): organizations, me
 
 The PHP counterpart of [`@flametrench/tenancy`](https://github.com/flametrench/node/tree/main/packages/tenancy) — same shapes, same invariants, same operations. Both SDKs are exercised against the spec's [conformance suite](https://github.com/flametrench/spec/tree/main/conformance) so applications can move between the two languages with no behavioral surprises.
 
-**Status:** v0.0.1 — early draft alongside `flametrench/ids`. PHP 8.3+ required.
+**Status:** v0.2.0-rc.5 (release candidate). PHP 8.3+ required. Includes the production-ready `PostgresTenancyStore` alongside the in-memory reference store; the Postgres adapter mirrors in-memory semantics byte-for-byte at the SDK boundary.
 
 ## Install
 
@@ -40,7 +40,7 @@ $result = $store->acceptInvitation($inv->id, asUsrId: 'usr_0190...carol');
 
 ## API
 
-`TenancyStore` defines the contract every backend implements. The in-memory reference implementation ships with this package; a Postgres-backed adapter is planned.
+`TenancyStore` defines the contract every backend implements. Both the in-memory reference implementation and the production-ready `PostgresTenancyStore` ship with this package.
 
 | Operation | Returns |
 |---|---|
