@@ -6,7 +6,7 @@ Tenancy primitives for [Flametrench](https://flametrench.dev): organizations, me
 
 The PHP counterpart of [`@flametrench/tenancy`](https://github.com/flametrench/node/tree/main/packages/tenancy) — same shapes, same invariants, same operations. Both SDKs are exercised against the spec's [conformance suite](https://github.com/flametrench/spec/tree/main/conformance) so applications can move between the two languages with no behavioral surprises.
 
-**Status:** v0.2.0-rc.5 (release candidate). PHP 8.3+ required. Includes the production-ready `PostgresTenancyStore` alongside the in-memory reference store; the Postgres adapter mirrors in-memory semantics byte-for-byte at the SDK boundary.
+**Status:** v0.2.0-rc.6 (release candidate). PHP 8.3+ required. Includes the production-ready `PostgresTenancyStore` alongside the in-memory reference store; the Postgres adapter mirrors in-memory semantics byte-for-byte at the SDK boundary, and per ADR 0013 cooperates with adopter-side outer transactions via savepoints when nested.
 
 ## Install
 
