@@ -296,6 +296,59 @@ it('listMembers paginates', function () {
     expect(count($allIds))->toBe(5); // alice + 4 added
 });
 
+// ───── Outer-transaction nesting (ADR 0013) ─────
+
+it('createOrg cooperates with an outer transaction (no nested-BEGIN error)', function () {
+    $this->pdo->beginTransaction();
+    ['org' => $org] = $this->store->createOrg($this->alice, name: 'Outer', slug: 'outer');
+    expect($this->pdo->inTransaction())->toBeTrue();
+    $this->pdo->commit();
+
+    $fetched = $this->store->getOrg($org->id);
+    expect($fetched->name)->toBe('Outer');
+});
+
+it('rolling back an outer transaction undoes the inner createOrg', function () {
+    $this->pdo->beginTransaction();
+    ['org' => $org] = $this->store->createOrg($this->alice, slug: 'will-rollback');
+    $this->pdo->rollBack();
+
+    expect(fn() => $this->store->getOrg($org->id))->toThrow(NotFoundException::class);
+
+    $countStmt = $this->pdo->query("SELECT count(*) FROM org WHERE slug = 'will-rollback'");
+    expect((int) $countStmt->fetchColumn())->toBe(0);
+});
+
+it('outer transaction can commit a second SDK call after the first one rolls back its savepoint', function () {
+    // Seed a slug so the next createOrg with the same slug will conflict.
+    $this->store->createOrg($this->bob, slug: 'taken');
+
+    $this->pdo->beginTransaction();
+    try {
+        $this->store->createOrg($this->alice, slug: 'taken'); // inner SDK call rolls back its savepoint
+        $this->fail('expected OrgSlugConflictException');
+    } catch (OrgSlugConflictException) {
+        // expected — savepoint rolled back, outer transaction still live
+    }
+
+    // Outer transaction is still usable; another SDK call commits cleanly.
+    ['org' => $survivor] = $this->store->createOrg($this->carol, slug: 'survivor');
+    $this->pdo->commit();
+
+    $fetched = $this->store->getOrg($survivor->id);
+    expect($fetched->slug)->toBe('survivor');
+});
+
+it('multiple SDK calls in one outer transaction commit-or-rollback together', function () {
+    $this->pdo->beginTransaction();
+    ['org' => $orgA] = $this->store->createOrg($this->alice, slug: 'group-a');
+    ['org' => $orgB] = $this->store->createOrg($this->bob, slug: 'group-b');
+    $this->pdo->rollBack();
+
+    expect(fn() => $this->store->getOrg($orgA->id))->toThrow(NotFoundException::class);
+    expect(fn() => $this->store->getOrg($orgB->id))->toThrow(NotFoundException::class);
+});
+
 // ───── NotFound paths ─────
 
 it('getOrg / getMembership / getInvitation throw NotFoundException for unknown ids', function () {

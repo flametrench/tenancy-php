@@ -32,6 +32,13 @@ use PDOException;
  * BEGIN/COMMIT block, so the spec's atomicity guarantees (membership +
  * tuple together, accept-with-pre-tuples, transferOwnership) are
  * backed by a real database transaction.
+ *
+ * Multi-SDK transaction nesting (ADR 0013): when the supplied PDO is
+ * already inside a transaction at call time, this store cooperates by
+ * using SAVEPOINT/RELEASE instead of opening its own BEGIN. Adopters
+ * wrapping several SDK calls in one outer `DB::transaction(...)` MUST
+ * construct every participating store with the same `\PDO` instance —
+ * savepoints are connection-scoped and cannot bridge connections.
  */
 final class PostgresTenancyStore implements TenancyStore
 {
@@ -85,7 +92,17 @@ final class PostgresTenancyStore implements TenancyStore
     }
 
     /**
-     * Run $fn inside BEGIN/COMMIT. Rolls back and rethrows on any error.
+     * Run $fn atomically. When called outside an active transaction the helper
+     * opens BEGIN/COMMIT around the work. When the connection is already inside
+     * a transaction (e.g. an adopter wrapped multiple SDK calls in
+     * `DB::transaction(...)`) the helper uses SAVEPOINT/RELEASE instead, so
+     * the adapter cooperates with the outer scope rather than fighting PDO's
+     * lack of nested-transaction support. See spec ADR 0013.
+     *
+     * Savepoint name follows `ft_<method>_<random>`: the method name preserves
+     * grep-ability in pg_stat_activity and pg logs; the random suffix makes
+     * pairing bugs surface as loud `savepoint does not exist` errors instead
+     * of silent half-commits.
      *
      * @template T
      * @param callable(): T $fn
@@ -93,6 +110,24 @@ final class PostgresTenancyStore implements TenancyStore
      */
     private function tx(callable $fn): mixed
     {
+        if ($this->pdo->inTransaction()) {
+            $savepoint = self::savepointName();
+            $this->pdo->exec('SAVEPOINT ' . $savepoint);
+            try {
+                $result = $fn();
+                $this->pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+                return $result;
+            } catch (\Throwable $e) {
+                try {
+                    $this->pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                    $this->pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+                } catch (\Throwable) {
+                    // Surface the original error.
+                }
+                throw $e;
+            }
+        }
+
         $this->pdo->beginTransaction();
         try {
             $result = $fn();
@@ -106,6 +141,23 @@ final class PostgresTenancyStore implements TenancyStore
             }
             throw $e;
         }
+    }
+
+    /**
+     * Build a savepoint name matching ADR 0013: `ft_<caller-method>_<rand>`.
+     * Caller is read from the stack frame two levels up (skipping this helper
+     * and the `tx()` wrapper), so `createOrg` -> `ft_createOrg_a1b2c3d4`.
+     * Falls back to `tx` when the caller is a closure or otherwise anonymous.
+     */
+    private static function savepointName(): string
+    {
+        $bt = \debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+        $caller = (string) ($bt[2]['function'] ?? 'tx');
+        $caller = preg_replace('/[^A-Za-z0-9]/', '', $caller) ?? '';
+        if ($caller === '') {
+            $caller = 'tx';
+        }
+        return 'ft_' . $caller . '_' . bin2hex(random_bytes(4));
     }
 
     /** Postgres SQLSTATE 23505 = unique_violation. Optionally narrow on constraint name. */
