@@ -13,7 +13,7 @@
     ],
     "require": {
         "php": "^8.3",
-        "flametrench/ids": "^0.2.0"
+        "flametrench/ids": "^0.3.0"
     },
     "suggest": {
         "ext-pdo": "Required by PostgresTenancyStore for the durable backend.",
