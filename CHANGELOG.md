@@ -3,6 +3,18 @@
 All notable changes to `flametrench/tenancy` are recorded here.
 Spec-level changes live in [`spec/CHANGELOG.md`](https://github.com/flametrench/spec/blob/main/CHANGELOG.md).
 
+## [v0.4.0] — 2026-06-07
+
+### Added
+- `TenancyStore::listOrgs(?cursor, limit=50, ?query, ?status) → Page<Organization>` — cross-org enumeration primitive (ADR 0025 / [spec#25](https://github.com/flametrench/spec/issues/25)).
+  - Cursor-paginated, ordered by `id` ASC (UUIDv7 ≈ creation time).
+  - Optional `status` filter (`active` | `suspended` | `revoked`).
+  - Optional `query`: case-insensitive substring match over org `name` or `slug` (ADR 0011 fields).
+  - Lands in both `InMemoryTenancyStore` and `PostgresTenancyStore` (ILIKE for Postgres, `mb_strtolower`+`str_contains` for InMemory).
+  - SDK is ungated per spec — adopter MUST gate call site to admin/system caller.
+  - Resolves the dangling `listOrgs` reference from ADR 0015.
+  - 8/8 MUST conformance cases from `tenancy/list-orgs.json` pass.
+
 ## [v0.2.0-rc.5] — 2026-04-27
 
 ### Fixed
