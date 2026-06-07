@@ -45,6 +45,7 @@ use Flametrench\Tenancy\Exceptions\SoleOwnerException;
 use Flametrench\Tenancy\InMemoryTenancyStore;
 use Flametrench\Tenancy\PreTuple;
 use Flametrench\Tenancy\Role;
+use Flametrench\Tenancy\Status;
 
 const TENANCY_FIXTURES_DIR = __DIR__ . '/conformance/fixtures';
 
@@ -257,6 +258,13 @@ function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
         'reinstate_org' => $store->reinstateOrg($args['org_id']),
         'revoke_org' => $store->revokeOrg($args['org_id']),
 
+        'list_orgs' => ['page' => $store->listOrgs(
+            cursor: $args['cursor'] ?? null,
+            limit: $args['limit'] ?? 50,
+            query: $args['query'] ?? null,
+            status: isset($args['status']) ? Status::from($args['status']) : null,
+        )],
+
         'assert_subject_relations' => assertSubjectRelations($store, $args),
         'assert_equal' => assertEqual($args),
         'assert_invitation_status' => assertInvitationStatus($store, $args),
@@ -345,6 +353,28 @@ function runTenancyTest(array $test): void
         foreach ($step['captures'] ?? [] as $name => $path) {
             $variables[$name] = walkPath($result, $path);
         }
+
+        if (isset($step['expected']['result'])) {
+            $r = $step['expected']['result'];
+            /** @var \Flametrench\Tenancy\Page<object> $page */
+            $page = walkPath($result, 'page');
+            if (array_key_exists('data_ids_in_order', $r)) {
+                $expected = resolveVars($r['data_ids_in_order'], $variables);
+                $actual = array_map(fn($item) => $item->id, $page->data);
+                expect($actual)->toBe($expected);
+            }
+            if (array_key_exists('data_ids_unordered', $r)) {
+                $expected = resolveVars($r['data_ids_unordered'], $variables);
+                $actual = array_map(fn($item) => $item->id, $page->data);
+                sort($actual);
+                sort($expected);
+                expect($actual)->toBe($expected);
+            }
+            if (array_key_exists('next_cursor', $r)) {
+                $expected = resolveVars($r['next_cursor'], $variables);
+                expect($page->nextCursor)->toBe($expected);
+            }
+        }
     }
 
     // Tests that consist only of "do these steps and don't throw" carry
@@ -364,6 +394,7 @@ foreach (
         'tenancy.accept_invitation' => 'tenancy/invitation-accept.json',
         'tenancy.accept_invitation.binding' => 'tenancy/invitation-accept-binding.json',
         'tenancy.update_org' => 'tenancy/org-name-slug.json',
+        'tenancy.list_orgs' => 'tenancy/list-orgs.json',
     ] as $describeName => $fixturePath
 ) {
     $fixture = loadTenancyFixture($fixturePath);

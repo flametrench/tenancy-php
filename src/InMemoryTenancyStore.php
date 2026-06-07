@@ -271,6 +271,34 @@ final class InMemoryTenancyStore implements TenancyStore
         return $updated;
     }
 
+    public function listOrgs(
+        ?string $cursor = null,
+        int $limit = 50,
+        ?string $query = null,
+        ?Status $status = null,
+    ): Page {
+        $limit = max(1, min(200, $limit));
+        $all = array_values(array_filter(
+            $this->orgs,
+            function (Organization $o) use ($status, $query): bool {
+                if ($status !== null && $o->status !== $status) {
+                    return false;
+                }
+                if ($query !== null) {
+                    $q = mb_strtolower($query);
+                    $nameMatch = $o->name !== null && str_contains(mb_strtolower($o->name), $q);
+                    $slugMatch = $o->slug !== null && str_contains(mb_strtolower($o->slug), $q);
+                    if (!$nameMatch && !$slugMatch) {
+                        return false;
+                    }
+                }
+                return true;
+            },
+        ));
+        usort($all, fn(Organization $a, Organization $b) => strcmp($a->id, $b->id));
+        return $this->paginate($all, $cursor, $limit);
+    }
+
     // ─── Memberships ───
 
     public function addMember(string $orgId, string $usrId, Role $role, ?string $invitedBy = null): Membership
