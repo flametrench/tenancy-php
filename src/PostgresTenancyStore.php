@@ -489,6 +489,42 @@ final class PostgresTenancyStore implements TenancyStore
         });
     }
 
+    public function listOrgs(
+        ?string $cursor = null,
+        int $limit = 50,
+        ?string $query = null,
+        ?Status $status = null,
+    ): Page {
+        $limit = max(1, min(200, $limit));
+        $params = [];
+        $where = [];
+        if ($status !== null) {
+            $where[] = 'status = ?';
+            $params[] = $status->value;
+        }
+        if ($query !== null) {
+            $where[] = "(name ILIKE '%' || ? || '%' OR slug ILIKE '%' || ? || '%')";
+            $params[] = $query;
+            $params[] = $query;
+        }
+        if ($cursor !== null) {
+            $where[] = 'id > ?';
+            $params[] = self::wireToUuid($cursor);
+        }
+        $params[] = $limit;
+        $sql = 'SELECT id, status, name, slug, created_at, updated_at FROM org'
+            . ($where !== [] ? ' WHERE ' . implode(' AND ', $where) : '')
+            . ' ORDER BY id LIMIT ?';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $data = array_map(self::rowToOrg(...), $rows);
+        $next = count($data) === $limit && count($data) > 0
+            ? $data[count($data) - 1]->id
+            : null;
+        return new Page(data: $data, nextCursor: $next);
+    }
+
     // ─── Memberships ───
 
     public function addMember(

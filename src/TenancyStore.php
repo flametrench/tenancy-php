@@ -64,6 +64,18 @@ interface TenancyStore
 
     public function revokeOrg(string $orgId): Organization;
 
+    /**
+     * Cross-org enumeration — returns all orgs ordered by id ASC (ADR 0025).
+     *
+     * @return Page<Organization>
+     */
+    public function listOrgs(
+        ?string $cursor = null,
+        int $limit = 50,
+        ?string $query = null,
+        ?Status $status = null,
+    ): Page;
+
     // ─── Memberships ───
 
     public function addMember(
