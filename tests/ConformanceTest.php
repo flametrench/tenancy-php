@@ -10,7 +10,7 @@
 // spec/conformance/fixture.schema.json. Each test:
 //
 //   1. Pre-allocates fresh usr_ IDs for declared named users.
-//   2. Creates a fresh InMemoryTenancyStore.
+//   2. Creates a fresh InMemoryTenancyStore (or the backend a test passes).
 //   3. Walks the steps list. Each step's input has {name} references
 //      resolved against the variable map (declared users + previous
 //      captures). The step calls the matching operation; on success
@@ -43,6 +43,8 @@ use Flametrench\Tenancy\Exceptions\PreconditionException;
 use Flametrench\Tenancy\Exceptions\RoleHierarchyException;
 use Flametrench\Tenancy\Exceptions\SoleOwnerException;
 use Flametrench\Tenancy\InMemoryTenancyStore;
+use Flametrench\Tenancy\PostgresTenancyStore;
+use Flametrench\Tenancy\TenancyStore;
 use Flametrench\Tenancy\PreTuple;
 use Flametrench\Tenancy\Role;
 use Flametrench\Tenancy\Status;
@@ -179,7 +181,7 @@ function buildPreTuples(?array $values): array
  *
  * @param array<string,mixed> $args
  */
-function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
+function invokeOp(TenancyStore $store, string $op, array $args): mixed
 {
     return match ($op) {
         'create_org' => $store->createOrg(
@@ -190,8 +192,8 @@ function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
 
         'update_org' => $store->updateOrg(
             $args['org_id'],
-            name: array_key_exists('name', $args) ? $args['name'] : InMemoryTenancyStore::UNSET,
-            slug: array_key_exists('slug', $args) ? $args['slug'] : InMemoryTenancyStore::UNSET,
+            name: array_key_exists('name', $args) ? $args['name'] : TenancyStore::UNSET,
+            slug: array_key_exists('slug', $args) ? $args['slug'] : TenancyStore::UNSET,
         ),
 
         'assert_org_fields' => assertOrgFields($store, $args),
@@ -276,7 +278,7 @@ function invokeOp(InMemoryTenancyStore $store, string $op, array $args): mixed
 /**
  * @param array{inv_id:string, expected_status:string} $args
  */
-function assertInvitationStatus(InMemoryTenancyStore $store, array $args): null
+function assertInvitationStatus(TenancyStore $store, array $args): null
 {
     $inv = $store->getInvitation($args['inv_id']);
     expect($inv->status->value)->toBe($args['expected_status']);
@@ -286,7 +288,7 @@ function assertInvitationStatus(InMemoryTenancyStore $store, array $args): null
 /**
  * @param array{org_id:string, expected_name?:string|null, expected_slug?:string|null} $args
  */
-function assertOrgFields(InMemoryTenancyStore $store, array $args): null
+function assertOrgFields(TenancyStore $store, array $args): null
 {
     $org = $store->getOrg($args['org_id']);
     if (array_key_exists('expected_name', $args)) {
@@ -301,7 +303,7 @@ function assertOrgFields(InMemoryTenancyStore $store, array $args): null
 /**
  * @param array{subject_type:string, subject_id:string, relations:list<string>} $args
  */
-function assertSubjectRelations(InMemoryTenancyStore $store, array $args): null
+function assertSubjectRelations(TenancyStore $store, array $args): null
 {
     $tuples = $store->listTuplesForSubject($args['subject_type'], $args['subject_id']);
     $actual = array_map(fn($t) => $t->relation, $tuples);
@@ -326,13 +328,20 @@ function assertEqual(array $args): null
  *
  * @param array{users?:list<string>, steps:array<int,array<string,mixed>>} $test
  */
-function runTenancyTest(array $test): void
+function runTenancyTest(array $test, ?callable $makeBackend = null): void
 {
-    $store = new InMemoryTenancyStore();
+    // $makeBackend returns [TenancyStore, ?callable(string $usrId): void];
+    // the callable seeds a declared user where the backend needs a usr row.
+    [$store, $seedUser] = $makeBackend !== null
+        ? $makeBackend()
+        : [new InMemoryTenancyStore(), null];
 
     $variables = [];
     foreach ($test['users'] ?? [] as $name) {
         $variables[$name] = Id::generate('usr');
+        if ($seedUser !== null) {
+            $seedUser($variables[$name]);
+        }
     }
 
     foreach ($test['steps'] as $step) {
@@ -395,6 +404,7 @@ foreach (
         'tenancy.accept_invitation.binding' => 'tenancy/invitation-accept-binding.json',
         'tenancy.update_org' => 'tenancy/org-name-slug.json',
         'tenancy.list_orgs' => 'tenancy/list-orgs.json',
+        'tenancy.revoke_invitation.authz' => 'tenancy/revoke-invitation-authz.json',
     ] as $describeName => $fixturePath
 ) {
     $fixture = loadTenancyFixture($fixturePath);
@@ -402,6 +412,35 @@ foreach (
         foreach ($fixture['tests'] as $t) {
             it("[{$t['id']}] {$t['description']}", function () use ($t) {
                 runTenancyTest($t);
+            });
+        }
+    });
+}
+
+// The revokeInvitation authorization vectors also run against
+// PostgresTenancyStore when TENANCY_POSTGRES_URL is set.
+$securityPgUrl = getenv('TENANCY_POSTGRES_URL') ?: null;
+if ($securityPgUrl !== null) {
+    $fixture = loadTenancyFixture('tenancy/revoke-invitation-authz.json');
+    describe('Conformance · tenancy.revoke_invitation.authz [MUST] · postgres', function () use ($fixture, $securityPgUrl) {
+        foreach ($fixture['tests'] as $t) {
+            it("[{$t['id']}] {$t['description']}", function () use ($t, $securityPgUrl) {
+                runTenancyTest($t, function () use ($securityPgUrl) {
+                    $p = parse_url($securityPgUrl);
+                    $pdo = new PDO(
+                        sprintf('pgsql:host=%s;port=%d;dbname=%s', $p['host'], $p['port'] ?? 5432, ltrim($p['path'], '/')),
+                        $p['user'] ?? 'postgres',
+                        $p['pass'] ?? '',
+                        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],
+                    );
+                    $pdo->exec('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;');
+                    $pdo->exec((string) file_get_contents(__DIR__ . '/postgres-schema.sql'));
+                    $seed = $pdo->prepare("INSERT INTO usr (id, status) VALUES (?, 'active')");
+                    return [
+                        new PostgresTenancyStore($pdo),
+                        fn(string $usrId) => $seed->execute([Id::decode($usrId)['uuid']]),
+                    ];
+                });
             });
         }
     });
