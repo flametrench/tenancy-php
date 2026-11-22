@@ -168,6 +168,23 @@ interface TenancyStore
 
     public function revokeInvitation(string $invId, string $adminUsrId): Invitation;
 
+    /**
+     * Revoke a pending invitation as the system: no actor, no authorization
+     * check. The invitation becomes revoked with `terminalBy` null (ADR 0028).
+     *
+     * Call-site gate (ADR 0028 rule 7): call this ONLY from server-side
+     * system or automation code (clean-up jobs, cascades from your own
+     * workflows). It MUST NOT be reachable from any user-facing or
+     * tenant-scoped route. The SDK cannot enforce this and conformance
+     * cannot detect a missing gate; the route layer is the only control.
+     * Same pattern as listUsers/listOrgs (spec docs/security.md). For a
+     * revoke performed by a person, use {@see revokeInvitation()}.
+     *
+     * @throws Exceptions\NotFoundException if the invitation does not exist
+     * @throws Exceptions\InvitationNotPendingException if it is not pending
+     */
+    public function revokeInvitationAsSystem(string $invId): Invitation;
+
     // ─── Authorization tuple accessors (read-only) ───
 
     /**

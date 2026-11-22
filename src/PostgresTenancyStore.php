@@ -1209,6 +1209,33 @@ final class PostgresTenancyStore implements TenancyStore
         });
     }
 
+    public function revokeInvitationAsSystem(string $invId): Invitation
+    {
+        return $this->tx(function () use ($invId) {
+            $stmt = $this->pdo->prepare(
+                'SELECT id, status FROM inv WHERE id = ? FOR UPDATE'
+            );
+            $stmt->execute([self::wireToUuid($invId)]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row === false) {
+                throw new NotFoundException("Invitation {$invId} not found");
+            }
+            if ($row['status'] !== 'pending') {
+                throw new InvitationNotPendingException("Invitation {$invId} is {$row['status']}");
+            }
+            $now = self::fmt($this->now());
+            $stmt = $this->pdo->prepare(
+                "UPDATE inv SET status = 'revoked', terminal_at = ?, terminal_by = NULL WHERE id = ?
+                 RETURNING id, org_id, identifier, role, status, pre_tuples, invited_by, invited_user_id,
+                          created_at, expires_at, terminal_at, terminal_by"
+            );
+            $stmt->execute([$now, $row['id']]);
+            /** @var array<string, mixed> $updated */
+            $updated = $stmt->fetch(PDO::FETCH_ASSOC);
+            return self::rowToInv($updated);
+        });
+    }
+
     // ─── Tuple accessors ───
 
     public function listTuplesForSubject(string $subjectType, string $subjectId): array
