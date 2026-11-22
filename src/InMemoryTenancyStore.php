@@ -722,6 +722,20 @@ final class InMemoryTenancyStore implements TenancyStore
     public function revokeInvitation(string $invId, string $adminUsrId): Invitation
     {
         $inv = $this->getInvitation($invId);
+        // docs/tenancy.md: revokeInvitation is subject to admin authorization
+        // on the invitation's org — same check as adminRemove. Checked before
+        // the status so a refused caller learns nothing about the invitation.
+        $admin = $this->findActiveMembership($adminUsrId, $inv->orgId);
+        if ($admin === null) {
+            throw new ForbiddenException(
+                "User {$adminUsrId} has no active membership in the invitation's org",
+            );
+        }
+        if ($admin->role !== Role::Owner && $admin->role !== Role::Admin) {
+            throw new ForbiddenException(
+                "Role {$admin->role->value} is not permitted to revoke invitations",
+            );
+        }
         if ($inv->status !== InvitationStatus::Pending) {
             throw new InvitationNotPendingException(
                 "Invitation {$invId} is {$inv->status->value}, not pending",

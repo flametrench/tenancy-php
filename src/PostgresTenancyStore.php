@@ -1164,12 +1164,34 @@ final class PostgresTenancyStore implements TenancyStore
     {
         return $this->tx(function () use ($invId, $adminUsrId) {
             $stmt = $this->pdo->prepare(
-                'SELECT id, status FROM inv WHERE id = ? FOR UPDATE'
+                'SELECT id, org_id, status FROM inv WHERE id = ? FOR UPDATE'
             );
             $stmt->execute([self::wireToUuid($invId)]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row === false) {
                 throw new NotFoundException("Invitation {$invId} not found");
+            }
+            // docs/tenancy.md: revokeInvitation is subject to admin authorization
+            // on the invitation's org — same check as adminRemove. Checked before
+            // the status so a refused caller learns nothing about the invitation.
+            // FOR SHARE: the acting membership can't be suspended or demoted
+            // between this check and the revoke below.
+            $stmt = $this->pdo->prepare(
+                "SELECT role FROM mem
+                 WHERE usr_id = ? AND org_id = ? AND status = 'active'
+                 FOR SHARE"
+            );
+            $stmt->execute([self::wireToUuid($adminUsrId), $row['org_id']]);
+            $role = $stmt->fetchColumn();
+            if ($role === false) {
+                throw new ForbiddenException(
+                    "User {$adminUsrId} has no active membership in the invitation's org",
+                );
+            }
+            if ($role !== 'owner' && $role !== 'admin') {
+                throw new ForbiddenException(
+                    "Role {$role} is not permitted to revoke invitations",
+                );
             }
             if ($row['status'] !== 'pending') {
                 throw new InvitationNotPendingException("Invitation {$invId} is {$row['status']}");
