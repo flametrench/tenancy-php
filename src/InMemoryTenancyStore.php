@@ -750,6 +750,23 @@ final class InMemoryTenancyStore implements TenancyStore
         return $updated;
     }
 
+    public function revokeInvitationAsSystem(string $invId): Invitation
+    {
+        $inv = $this->getInvitation($invId);
+        if ($inv->status !== InvitationStatus::Pending) {
+            throw new InvitationNotPendingException(
+                "Invitation {$invId} is {$inv->status->value}, not pending",
+            );
+        }
+        $updated = $inv->transitionTerminal(
+            status: InvitationStatus::Revoked,
+            at: $this->now(),
+            by: null,
+        );
+        $this->invitations[$inv->id] = $updated;
+        return $updated;
+    }
+
     // ─── Tuple accessors ───
 
     public function listTuplesForSubject(string $subjectType, string $subjectId): array

@@ -256,6 +256,10 @@ function invokeOp(TenancyStore $store, string $op, array $args): mixed
             adminUsrId: $args['admin_usr_id'],
         ),
 
+        'revoke_invitation_as_system' => $store->revokeInvitationAsSystem(
+            invId: $args['inv_id'],
+        ),
+
         'suspend_org' => $store->suspendOrg($args['org_id']),
         'reinstate_org' => $store->reinstateOrg($args['org_id']),
         'revoke_org' => $store->revokeOrg($args['org_id']),
@@ -405,6 +409,7 @@ foreach (
         'tenancy.update_org' => 'tenancy/org-name-slug.json',
         'tenancy.list_orgs' => 'tenancy/list-orgs.json',
         'tenancy.revoke_invitation.authz' => 'tenancy/revoke-invitation-authz.json',
+        'tenancy.revoke_invitation_as_system' => 'tenancy/revoke-invitation-as-system.json',
     ] as $describeName => $fixturePath
 ) {
     $fixture = loadTenancyFixture($fixturePath);
@@ -417,12 +422,16 @@ foreach (
     });
 }
 
-// The revokeInvitation authorization vectors also run against
-// PostgresTenancyStore when TENANCY_POSTGRES_URL is set.
+// The revokeInvitation vectors also run against PostgresTenancyStore
+// when TENANCY_POSTGRES_URL is set.
 $securityPgUrl = getenv('TENANCY_POSTGRES_URL') ?: null;
-if ($securityPgUrl !== null) {
-    $fixture = loadTenancyFixture('tenancy/revoke-invitation-authz.json');
-    describe('Conformance · tenancy.revoke_invitation.authz [MUST] · postgres', function () use ($fixture, $securityPgUrl) {
+$postgresFixtures = $securityPgUrl === null ? [] : [
+    'tenancy.revoke_invitation.authz' => 'tenancy/revoke-invitation-authz.json',
+    'tenancy.revoke_invitation_as_system' => 'tenancy/revoke-invitation-as-system.json',
+];
+foreach ($postgresFixtures as $describeName => $fixturePath) {
+    $fixture = loadTenancyFixture($fixturePath);
+    describe("Conformance · {$describeName} [MUST] · postgres", function () use ($fixture, $securityPgUrl) {
         foreach ($fixture['tests'] as $t) {
             it("[{$t['id']}] {$t['description']}", function () use ($t, $securityPgUrl) {
                 runTenancyTest($t, function () use ($securityPgUrl) {
